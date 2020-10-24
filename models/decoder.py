@@ -7,7 +7,7 @@ import math
 import torch
 
 class Decoder(nn.Module):
-    def __init__(self, layers, size_mid=None, size_out=None, readout=1, padding=0, stride=1, size=3, depth=1):
+    def __init__(self, num_filters, size_mid=None, size_out=None, readout=1, padding=0, stride=1, size=3, num_layers=1):
         super(Decoder, self).__init__()
         self.readout = readout
 
@@ -17,11 +17,9 @@ class Decoder(nn.Module):
         self.stride = stride
         self.size = size
 
-        self.num_layers = sum(layers)
+        print ("Padding in the decoder", self.padding, "Kernel size", self.size, "Number of filters in the Decoder", self.num_filters)
 
-        print ("Padding in the decoder", self.padding, "Kernel size", self.size, "Number of filters in the Decoder", self.num_layers)
-
-        self.output = self._make_output(self.num_layers, size=self.size, depth=depth)
+        self.output = self._make_output(self.num_filters, size=self.size, num_layers=num_layers)
 
         self._initialize_weights()
 
@@ -38,31 +36,32 @@ class Decoder(nn.Module):
                 nn.init.normal_(m.weight, 0, 0.01)
                 nn.init.constant_(m.bias, 0)
 
-    def _make_output(self, planes, size, readout=1, depth=1):
+    def _make_output(self, num_filters, size, readout=1, num_layers=1):
         layers = []
-        for i in range(depth):
-            if i == depth - 1:
-                layers += nn.Conv2d(planes, readout, kernel_size=size, stride=self.stride, padding=self.padding),
+        for i in range(num_layers):
+            if i == n_layers - 1:
+                layers += nn.Conv2d(num_filters, readout, kernel_size=size, stride=self.stride, padding=self.padding),
                 layers += nn.BatchNorm2d(readout),
                 layers.append(nn.Sigmoid())
             else:
-                layers += nn.Conv2d(planes, planes, kernel_size=size, stride=self.stride, padding=self.padding),
-                layers += nn.BatchNorm2d(planes),
+                layers += nn.Conv2d(num_filters, num_filters, kernel_size=size, stride=self.stride, padding=self.padding),
+                layers += nn.BatchNorm2d(num_filters),
                 layers.append(nn.ReLU(inplace=True))
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        if self.num_layers == 3: 
+        # num_filters equals three when the input is an RGB image.
+        if self.num_filters == 3: 
             feat = F.interpolate(x, self.size_mid, mode='bilinear')
             feat = self.output(feat)
-        elif self.multi < 0:
+
+        # otherwise, the input is a list of multi-level features.
+        else:
             for i in range(len(x)):
                 x[i] = F.interpolate(x[i], self.size_mid, mode='bilinear')
             feat = torch.cat(x, dim=1)
             feat = self.output(feat) 
-        else:
-            feat = F.interpolate(x[self.multi], self.size_mid, mode='bilinear')
-            feat = self.output(feat)
+
         feat = F.interpolate(feat, self.size_out, mode='bilinear')
         return feat 
 
