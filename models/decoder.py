@@ -39,7 +39,7 @@ class Decoder(nn.Module):
     def _make_output(self, num_filters, size, readout=1, num_layers=1):
         layers = []
         for i in range(num_layers):
-            if i == n_layers - 1:
+            if i == num_layers - 1:
                 layers += nn.Conv2d(num_filters, readout, kernel_size=size, stride=self.stride, padding=self.padding),
                 layers += nn.BatchNorm2d(readout),
                 layers.append(nn.Sigmoid())
