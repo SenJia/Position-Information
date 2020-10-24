@@ -7,19 +7,28 @@ import math
 import torch
 
 class Decoder(nn.Module):
-    def __init__(self, num_filters, size_mid=None, size_out=None, readout=1, padding=0, stride=1, size=3, num_layers=1):
+    def __init__(self, layer_list, size_mid=None, size_out=None, padding=0, filter_size=3, num_layers=1):
+        """
+        Arguments:
+        layer_list: a list of the multi-level feature, e.g., [64, 128, 256]. The features will be resized and concatenated into one tensor
+                    for the convolution module.
+        size_mid: the size of the concatenated multi-level feature.
+        size_out: the size of the output map.
+        padding: the size of zero-padding area, should be 0 as used in our paper.
+        filter_size: the size of the conv filter used in the decoder module.
+        num_layers: the number of conv layers used in the decoder module.
+        """
         super(Decoder, self).__init__()
-        self.readout = readout
 
         self.size_mid = size_mid
         self.size_out = size_out
-        self.padding = padding
-        self.stride = stride
-        self.size = size
 
-        print ("Padding in the decoder", self.padding, "Kernel size", self.size, "Number of filters in the Decoder", self.num_filters)
 
-        self.output = self._make_output(self.num_filters, size=self.size, num_layers=num_layers)
+        num_filters = sum(layer_list) # the multi-level feature will be concatenated into one tensor, on which the conv module will be applied.
+
+        print ("Padding in the decoder", padding, "Kernel size", size, "Number of filters in the Decoder", num_filters)
+
+        self.output = self._make_output(num_filters, filter_size, padding, num_layers)
 
         self._initialize_weights()
 
@@ -36,15 +45,15 @@ class Decoder(nn.Module):
                 nn.init.normal_(m.weight, 0, 0.01)
                 nn.init.constant_(m.bias, 0)
 
-    def _make_output(self, num_filters, size, readout=1, num_layers=1):
+    def _make_output(self, num_filters, size, padding, num_layers):
         layers = []
         for i in range(num_layers):
             if i == num_layers - 1:
-                layers += nn.Conv2d(num_filters, readout, kernel_size=size, stride=self.stride, padding=self.padding),
-                layers += nn.BatchNorm2d(readout),
+                layers += nn.Conv2d(num_filters, 1, kernel_size=size, padding=padding),
+                layers += nn.BatchNorm2d(1),
                 layers.append(nn.Sigmoid())
             else:
-                layers += nn.Conv2d(num_filters, num_filters, kernel_size=size, stride=self.stride, padding=self.padding),
+                layers += nn.Conv2d(num_filters, num_filters, kernel_size=size, padding=padding),
                 layers += nn.BatchNorm2d(num_filters),
                 layers.append(nn.ReLU(inplace=True))
         return nn.Sequential(*layers)
@@ -53,15 +62,13 @@ class Decoder(nn.Module):
         # num_filters equals three when the input is an RGB image.
         if self.num_filters == 3: 
             feat = F.interpolate(x, self.size_mid, mode='bilinear')
-            feat = self.output(feat)
-
         # otherwise, the input is a list of multi-level features.
         else:
             for i in range(len(x)):
                 x[i] = F.interpolate(x[i], self.size_mid, mode='bilinear')
             feat = torch.cat(x, dim=1)
-            feat = self.output(feat) 
 
+        feat = self.output(feat) 
         feat = F.interpolate(feat, self.size_out, mode='bilinear')
         return feat 
 
