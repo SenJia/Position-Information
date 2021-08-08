@@ -66,17 +66,19 @@ cfg = {
     'D': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'],
 }
 
-def vgg16(pad=True, **kwargs):
+def vgg16(pretrain=True, pad=True, **kwargs):
 
     model = VGG(make_layers(cfg['D'], pad=pad), **kwargs)
-    # take the pre-trained backbone
-    model_state = model.state_dict()
-    loaded = model_zoo.load_url(model_urls['vgg16'])
-    pretrained = {k:v for k,v in loaded.items() if k in model_state}
-    model_state.update(pretrained)
-    model.load_state_dict(model_state)
-    print ("Updated parameters", len(pretrained)) 
-  
+
+    if pretrain:
+        # take the pre-trained backbone
+        model_state = model.state_dict()
+        loaded = model_zoo.load_url(model_urls['vgg16'])
+        pretrained = {k:v for k,v in loaded.items() if k in model_state}
+        model_state.update(pretrained)
+        model.load_state_dict(model_state)
+        print ("Updated parameters", len(pretrained)) 
+
     for i, (n, v) in enumerate(model.named_parameters()):
         print (i, n)
     print ("Chekcing the index for the multi-level features.")

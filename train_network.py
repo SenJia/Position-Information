@@ -56,10 +56,10 @@ parser.add_argument('--print-freq', '-p', default=300, type=int,
                     metavar='N', help='print frequency (default: 10)')
 parser.add_argument('--lr-decay', default=[10], type=list,
                     metavar='N', help='print frequency (default: 5)')
-parser.add_argument("--batch_size", default=16, type=int, help='The size of the training batch.')
+parser.add_argument("--batch_size", default=4, type=int, help='The size of the training batch.')
 
 parser.add_argument("--arch", default="vgg", type=str)
-#parser.add_argument("--gpu", default="1", type=str)
+parser.add_argument("--pretrain", action="store_true", help='Initializing the backbone with an ImageNet pretrained one.')
 
 parser.add_argument("--feat_size", default=28, type=int, help='The features from the backbone will be re-scaled to a fixed size for alignment.')
 parser.add_argument("--img_size", default=224, type=int, help='The input image and groundtruth will be re-scaled.')
@@ -112,13 +112,13 @@ def main(gt):
     if args.arch.startswith("vgg"):
         print ("Building VGG and Decoder")
 
-        backbone = models.vgg.vgg16(pad=args.vgg_pad, layer_index=args.feat_index) 
+        backbone = models.vgg.vgg16(pretrain=args.pretrain, pad=args.vgg_pad, layer_index=args.feat_index) 
 
         decode_model = models.decoder.build_decoder(layer_list=[64,128,256,512,512], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
 
     elif args.arch.startswith("res"):
         print ("Building ResNet and Decoder")
-        backbone = models.resnet.resnet152()
+        backbone = models.resnet.resnet152(pretrain=args.pretrain)
         decode_model = models.decoder.build_decoder(layer_list=[64*4, 128*4, 256*4, 512*4], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
     elif args.arch.startswith("img"):
         print ("Building Decoder only")
@@ -126,10 +126,12 @@ def main(gt):
         decode_model = models.decoder.build_decoder(layer_list=[3], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
 
     if not backbone is None:
+        """
         for param in backbone.parameters():
             param.requires_grad = False
-        backbone = backbone.cuda()
         backbone.eval()
+        """
+        backbone = backbone.cuda()
 
     decode_model = decode_model.cuda()
 
