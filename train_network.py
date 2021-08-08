@@ -126,6 +126,8 @@ def main(gt):
         backbone = None
         decode_model = models.decoder.build_decoder(layer_list=[3], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
 
+    trainable_params = []
+
     if not backbone is None:
         backbone = backbone.cuda()
         if not args.train_backbone:
@@ -133,12 +135,17 @@ def main(gt):
             for param in backbone.parameters():
                 param.requires_grad = False
             backbone.eval()
+        else:
+            trainable_params.extend(list(backbone.parameters()))
+
+    trainable_params.extend(list(decode_model.parameters()))
 
     decode_model = decode_model.cuda()
 
     criterion = nn.MSELoss().cuda()
 
-    optimizer = torch.optim.SGD(filter(lambda p:p.requires_grad, decode_model.parameters()), args.lr,
+
+    optimizer = torch.optim.SGD(filter(lambda p:p.requires_grad, trainable_params), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
 
