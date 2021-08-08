@@ -26,6 +26,7 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 
 import numpy as np
+from scipy.stats import spearmanr
 from PIL import Image
 from collections import defaultdict
 
@@ -35,6 +36,8 @@ import models
 import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
+parser.add_argument("train_dir", type=str, help='The datafolder of the training image, e.g., the DUT-S dataset.')
+parser.add_argument("test_dir", type=str, help='The datafolder of the training image, e.g., the PASCAL-S dataset.')
 parser.add_argument('-j', '--workers', default=16, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('--epochs', default=15, type=int, metavar='N',
@@ -53,6 +56,7 @@ parser.add_argument('--print-freq', '-p', default=300, type=int,
                     metavar='N', help='print frequency (default: 10)')
 parser.add_argument('--lr-decay', default=[10], type=list,
                     metavar='N', help='print frequency (default: 5)')
+parser.add_argument("--batch_size", default=16, type=int, help='The size of the training batch.')
 
 parser.add_argument("--arch", default="vgg", type=str)
 #parser.add_argument("--gpu", default="1", type=str)
@@ -71,7 +75,6 @@ args = parser.parse_args()
 #os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   
 #os.environ["CUDA_VISIBLE_DEVICES"]=args.gpu
 
-DATA_DIR = # pass the folder of your data here.
 
 GT_PATTERNS = {
     "hor": "./synthetic/groundtruth/gt_hor.png",
@@ -84,19 +87,20 @@ GT_PATTERNS = {
 
 def main(gt):
 
-    def build_data_loader(data_root, data_file, gt_type, train=False):
+    def build_data_loader(data_root, gt_type, train=False):
         # load the synthetic groundtruth map.
         gt_path = GT_PATTERNS[gt_type]
         gt_pil = Image.open(gt_path).convert('L')
         gt_resized = F.resize(gt_pil, (args.img_size, args.img_size))
         gt_tensor = F.to_tensor(gt_resized)
+
         if gt_tensor.min() != 0 or gt_tensor.max() != 1:
             gt_tensor -= gt_tensor.min()
             gt_tensor /= gt_tensor.max()
- 
+
         # create a dataloader for the images.
         data_loader = torch.utils.data.DataLoader(
-            loader.ImageList(data_root, data_file, transforms.Compose([
+            loader.ImageList(data_root, transforms.Compose([
                 transforms.Resize((args.img_size, args.img_size)),
                 transforms.ToTensor(),
             ]),
@@ -110,16 +114,16 @@ def main(gt):
 
         backbone = models.vgg.vgg16(pad=args.vgg_pad, layer_index=args.feat_index) 
 
-        decode_model = models.decoder.build_decoder(layers=[64,128,256,512,512], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, depth=args.decoder_depth)
+        decode_model = models.decoder.build_decoder(layer_list=[64,128,256,512,512], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
 
     elif args.arch.startswith("res"):
         print ("Building ResNet and Decoder")
         backbone = models.resnet.resnet152()
-        decode_model = models.decoder.build_decoder(layers=[64*4, 128*4, 256*4, 512*4], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, depth=args.decoder_depth)
+        decode_model = models.decoder.build_decoder(layer_list=[64*4, 128*4, 256*4, 512*4], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
     elif args.arch.startswith("img"):
         print ("Building Decoder only")
         backbone = None
-        decode_model = models.decoder.build_decoder(layers=[3], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, depth=args.decoder_depth)
+        decode_model = models.decoder.build_decoder(layer_list=[3], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
 
     if not backbone is None:
         for param in backbone.parameters():
@@ -135,18 +139,20 @@ def main(gt):
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
 
-    train_file = # pass the text file here, each line should contain one image path. 
-    train_loader, gt_map = build_data_loader(DATA_DIR, train_file, gt_type=gt, train=True)
+    train_loader, gt_map = build_data_loader(args.train_dir, gt_type=gt, train=True)
+    test_loader, gt_map = build_data_loader(args.test_dir, gt_type=gt, train=False)
 
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch, len(train_loader))
         train(train_loader, gt_map, backbone, decode_model, criterion, optimizer, epoch)
+        evaluate(test_loader, gt_map, backbone, decode_model, criterion, epoch)
 
 
     output_folder = str(args.arch)+"_"+gt
     if args.prefix:
         output_folder = args.prefix + "_" + output_folder
     print ("Output directory", output_folder)
+
     if output_folder and not os.path.isdir(output_folder):
         os.makedirs(output_folder)
     state = {
@@ -163,6 +169,8 @@ def train(train_loader, gt_map, backbone, decode_model, criterion, optimizer, ep
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
+
+    decode_model.train()
 
     end = time.time()
     for i, (input) in enumerate(train_loader):
@@ -199,6 +207,48 @@ def train(train_loader, gt_map, backbone, decode_model, criterion, optimizer, ep
                    epoch, i, len(train_loader), batch_time=batch_time,
                    data_time=data_time, loss=losses))
 
+def spearman(x, y):
+    spc = []
+    for a, b in zip(x, y):
+        spc.append(spearmanr(a.reshape(-1), b.reshape(-1))[0])
+    return np.mean(spc)
+
+def evaluate(test_loader, gt_map, backbone, decode_model, criterion, epoch):
+
+    batch_time = AverageMeter()
+    data_time = AverageMeter()
+    losses = AverageMeter()
+    spc = AverageMeter()
+
+    decode_model.eval()
+
+    end = time.time()
+    for i, (input) in enumerate(test_loader):
+        data_time.update(time.time() - end)
+
+        # expand the gt_map to the batch size.
+        batch_map = gt_map.expand(input.size(0), -1, -1, -1)
+
+        # pass to gpu
+        input = input.cuda()
+
+        if not backbone is None:
+            input = backbone(input)
+
+        output = decode_model(input).detach().cpu()
+
+        mse = criterion(output, batch_map)
+        losses.update(mse.item(), batch_map.size(0))
+
+        spc_score = spearman(output.squeeze().numpy(), batch_map.squeeze().numpy())
+        spc.update(spc_score, batch_map.size(0))
+
+
+        batch_time.update(time.time() - end)
+        end = time.time()
+    print ("The MSE loss on the test is", losses.avg)
+    print ("The Spearman score on the test is", spc.avg)
+
 class AverageMeter(object):
     """Computes and stores the average and current value"""
     def __init__(self):
@@ -212,6 +262,7 @@ class AverageMeter(object):
 
     def update(self, val, n=1):
         self.val = val
+
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
@@ -225,4 +276,5 @@ if __name__ == '__main__':
 
     GTs = ["hor", "ver", "gau", "horstp", "verstp"] 
     for gt in GTs:
+        print ("The target GT pattern is", gt)
         main(gt)

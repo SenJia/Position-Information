@@ -11,21 +11,22 @@ from PIL import Image
 from PIL import ImageFilter
 import os
 import os.path
+from pathlib import Path
 import numpy as np
 import torch
 import torchvision.transforms as transforms
 
-import matplotlib.pyplot as plt
 from torch import nn
 
-def make_dataset(root, txt_file):
+def make_dataset(root):
+    if not isinstance(root, Path):
+        root = Path(root)
+    # set the extension of the image file.
+    types = ('*.jpg', '*.jpeg', '*.png')
     images = []
-    with open(txt_file,"r") as f:
-        for line in f:
-            path = line.rstrip("\n")
-            if " " in path:
-                path = path.split(" ")[0]
-            images.append(root / path)
+    for t in types:
+        for f in root.glob(t):
+            images.append(f)
     return images
 
 def pil_loader(path):
@@ -45,7 +46,6 @@ def accimage_loader(path):
         # Potentially a decoding problem, fall back to PIL.Image
         return pil_loader(path)
 
-
 def default_loader(path):
     from torchvision import get_image_backend
     if get_image_backend() == 'accimage':
@@ -55,14 +55,13 @@ def default_loader(path):
 
 
 class ImageList(data.Dataset):
-    def __init__(self, root, txt_file, transform=None, target_transform=None,
+    def __init__(self, root, transform=None, target_transform=None,
                  loader=default_loader):
-        imgs = make_dataset(root, txt_file)
+        imgs = make_dataset(root)
         if not imgs:
             raise(RuntimeError("Found 0 images in subfolders of: " + root + "\n"
                                "Supported image extensions are: " + ",".join(IMG_EXTENSIONS)))
 
-        self.root = root
         self.imgs = imgs
         self.transform = transform
         self.target_transform = target_transform

@@ -67,8 +67,8 @@ cfg = {
 }
 
 def vgg16(pad=True, **kwargs):
+
     model = VGG(make_layers(cfg['D'], pad=pad), **kwargs)
-    
     # take the pre-trained backbone
     model_state = model.state_dict()
     loaded = model_zoo.load_url(model_urls['vgg16'])

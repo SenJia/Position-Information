@@ -7,7 +7,7 @@ import math
 import torch
 
 class Decoder(nn.Module):
-    def __init__(self, layer_list, size_mid=None, size_out=None, padding=0, filter_size=3, num_layers=1):
+    def __init__(self, layer_list, size_mid=None, size_out=None, padding=0, filter_size=3, decoder_depth=1):
         """
         Arguments:
         layer_list: a list of the multi-level feature, e.g., [64, 128, 256]. The features will be resized and concatenated into one tensor
@@ -16,7 +16,7 @@ class Decoder(nn.Module):
         size_out: the size of the output map.
         padding: the size of zero-padding area, should be 0 as used in our paper.
         filter_size: the size of the conv filter used in the decoder module.
-        num_layers: the number of conv layers used in the decoder module.
+        deocder_depth: the number of conv layers used in the decoder module.
         """
         super(Decoder, self).__init__()
 
@@ -24,11 +24,11 @@ class Decoder(nn.Module):
         self.size_out = size_out
 
 
-        num_filters = sum(layer_list) # the multi-level feature will be concatenated into one tensor, on which the conv module will be applied.
+        self.num_filters = sum(layer_list) # the multi-level feature will be concatenated into one tensor, on which the conv module will be applied.
 
-        print ("Padding in the decoder", padding, "Kernel size", size, "Number of filters in the Decoder", num_filters)
+        print ("Padding in the decoder", padding, "Kernel size", filter_size, "Number of filters in the Decoder", self.num_filters)
 
-        self.output = self._make_output(num_filters, filter_size, padding, num_layers)
+        self.output = self._make_output(self.num_filters, filter_size, padding, decoder_depth)
 
         self._initialize_weights()
 
@@ -45,10 +45,10 @@ class Decoder(nn.Module):
                 nn.init.normal_(m.weight, 0, 0.01)
                 nn.init.constant_(m.bias, 0)
 
-    def _make_output(self, num_filters, size, padding, num_layers):
+    def _make_output(self, num_filters, size, padding, decoder_depth):
         layers = []
-        for i in range(num_layers):
-            if i == num_layers - 1:
+        for i in range(decoder_depth):
+            if i == decoder_depth - 1:
                 layers += nn.Conv2d(num_filters, 1, kernel_size=size, padding=padding),
                 layers += nn.BatchNorm2d(1),
                 layers.append(nn.Sigmoid())
@@ -61,15 +61,15 @@ class Decoder(nn.Module):
     def forward(self, x):
         # num_filters equals three when the input is an RGB image.
         if self.num_filters == 3: 
-            feat = F.interpolate(x, self.size_mid, mode='bilinear')
+            feat = F.interpolate(x, self.size_mid, mode='bilinear', align_corners=True)
         # otherwise, the input is a list of multi-level features.
         else:
             for i in range(len(x)):
-                x[i] = F.interpolate(x[i], self.size_mid, mode='bilinear')
+                x[i] = F.interpolate(x[i], self.size_mid, mode='bilinear', align_corners=True)
             feat = torch.cat(x, dim=1)
 
         feat = self.output(feat) 
-        feat = F.interpolate(feat, self.size_out, mode='bilinear')
+        feat = F.interpolate(feat, self.size_out, mode='bilinear', align_corners=True)
         return feat 
 
 def build_decoder(model_path=None, **kargs):
