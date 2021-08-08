@@ -60,6 +60,7 @@ parser.add_argument("--batch_size", default=4, type=int, help='The size of the t
 
 parser.add_argument("--arch", default="vgg", type=str)
 parser.add_argument("--pretrain", action="store_true", help='Initializing the backbone with an ImageNet pretrained one.')
+parser.add_argument("--train_backbone", action="store_true", help='If the backbone is trainable.')
 
 parser.add_argument("--feat_size", default=28, type=int, help='The features from the backbone will be re-scaled to a fixed size for alignment.')
 parser.add_argument("--img_size", default=224, type=int, help='The input image and groundtruth will be re-scaled.')
@@ -126,12 +127,12 @@ def main(gt):
         decode_model = models.decoder.build_decoder(layer_list=[3], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
 
     if not backbone is None:
-        """
-        for param in backbone.parameters():
-            param.requires_grad = False
-        backbone.eval()
-        """
         backbone = backbone.cuda()
+        if not args.train_backbone:
+            print ("freezing the backbone.")
+            for param in backbone.parameters():
+                param.requires_grad = False
+            backbone.eval()
 
     decode_model = decode_model.cuda()
 
