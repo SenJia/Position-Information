@@ -176,13 +176,14 @@ def resnet18(**kwargs):
 
     return model
 
-def resnet152(**kwargs):
+def resnet152(pretrained=True, **kwargs):
     model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
-
-    # Note that our work takes the pre-trained backbone by default.
-    model_state = model.state_dict()
-    loaded = model_zoo.load_url(model_urls['resnet152'])
-    pretrained = {k:v for k,v in loaded.items() if k in model_state}
-    model_state.update(pretrained)
-    model.load_state_dict(model_state)
+    if pretrained:
+        # Note that our work takes the pre-trained backbone by default.
+        model_state = model.state_dict()
+        loaded = model_zoo.load_url(model_urls['resnet152'])
+        loaded_dict = {k:v for k,v in loaded.items() if k in model_state}
+        model_state.update(loaded_dict)
+        model.load_state_dict(model_state)
+        print ("Updated parameters", len(loaded_dict))
     return model

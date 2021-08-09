@@ -44,8 +44,10 @@ parser.add_argument('--epochs', default=15, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch-size', default=32, type=int,
+
+parser.add_argument('-b', '--batch-size', default=8, type=int,
                     metavar='N', help='mini-batch size per process (default: 256)')
+
 parser.add_argument('--lr', '--learning-rate', default=1e-1, type=float,
                     metavar='LR', help='Initial learning rate.  Will be scaled by <global batch size>/256: args.lr = args.lr*float(args.batch_size*args.world_size)/256.  A warmup schedule will also be applied over the first 5 epochs.')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
@@ -56,7 +58,6 @@ parser.add_argument('--print-freq', '-p', default=300, type=int,
                     metavar='N', help='print frequency (default: 10)')
 parser.add_argument('--lr-decay', default=[10], type=list,
                     metavar='N', help='print frequency (default: 5)')
-parser.add_argument("--batch_size", default=4, type=int, help='The size of the training batch.')
 
 parser.add_argument("--arch", default="vgg", type=str)
 parser.add_argument("--pretrain", action="store_true", help='Initializing the backbone with an ImageNet pretrained one.')
@@ -98,7 +99,6 @@ def main(gt):
         if gt_tensor.min() != 0 or gt_tensor.max() != 1:
             gt_tensor -= gt_tensor.min()
             gt_tensor /= gt_tensor.max()
-
         # create a dataloader for the images.
         data_loader = torch.utils.data.DataLoader(
             loader.ImageList(data_root, transforms.Compose([
@@ -112,16 +112,21 @@ def main(gt):
 
     if args.arch.startswith("vgg"):
         print ("Building VGG and Decoder")
-
-        backbone = models.vgg.vgg16(pretrain=args.pretrain, pad=args.vgg_pad, layer_index=args.feat_index) 
-
+        backbone = models.vgg.vgg16(pretrained=args.pretrain, pad=args.vgg_pad, layer_index=args.feat_index) 
         decode_model = models.decoder.build_decoder(layer_list=[64,128,256,512,512], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
 
     elif args.arch.startswith("res"):
         print ("Building ResNet and Decoder")
-        backbone = models.resnet.resnet152(pretrain=args.pretrain)
+        backbone = models.resnet.resnet152(pretrained=args.pretrain)
         decode_model = models.decoder.build_decoder(layer_list=[64*4, 128*4, 256*4, 512*4], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
-    elif args.arch.startswith("img"):
+
+    elif args.arch.startswith("bag"):
+        print ("Building BagNet and Decoder")
+        #backbone = models.bagnet.bagnet17(pretrained=args.pretrain)
+        backbone = models.bagnet.bagnet9(pretrained=args.pretrain)
+        decode_model = models.decoder.build_decoder(layer_list=[64*4, 128*4, 256*4, 512*4], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
+
+    elif args.arch.startswith("res"):
         print ("Building Decoder only")
         backbone = None
         decode_model = models.decoder.build_decoder(layer_list=[3], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
@@ -179,7 +184,8 @@ def train(train_loader, gt_map, backbone, decode_model, criterion, optimizer, ep
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
-
+    if args.train_backbone:
+        backbone.train()
     decode_model.train()
 
     end = time.time()
@@ -191,6 +197,7 @@ def train(train_loader, gt_map, backbone, decode_model, criterion, optimizer, ep
 
         # pass to gpu
         input = input.cuda()
+        #print (input.shape)
         batch_map = batch_map.cuda()
 
         if not backbone is None:
@@ -229,7 +236,8 @@ def evaluate(test_loader, gt_map, backbone, decode_model, criterion, epoch):
     data_time = AverageMeter()
     losses = AverageMeter()
     spc = AverageMeter()
-
+    if args.train_backbone:
+        backbone.eval()
     decode_model.eval()
 
     end = time.time()
@@ -284,7 +292,8 @@ def adjust_learning_rate(optimizer, epoch, len_epoch):
 
 if __name__ == '__main__':
 
-    GTs = ["hor", "ver", "gau", "horstp", "verstp"] 
+    #GTs = ["hor", "ver", "gau", "horstp", "verstp"] 
+    GTs = ["ver", "horstp", "verstp"] 
     for gt in GTs:
         print ("The target GT pattern is", gt)
         main(gt)
