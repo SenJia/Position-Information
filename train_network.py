@@ -11,6 +11,7 @@ import os
 import shutil
 import time
 import pathlib as pl
+from PIL import Image
 
 import torch
 import torch.nn as nn
@@ -24,6 +25,7 @@ import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
+
 
 import numpy as np
 from scipy.stats import spearmanr
@@ -62,6 +64,7 @@ parser.add_argument('--lr-decay', default=[10], type=list,
 parser.add_argument("--arch", default="vgg", type=str)
 parser.add_argument("--pretrain", action="store_true", help='Initializing the backbone with an ImageNet pretrained one.')
 parser.add_argument("--train_backbone", action="store_true", help='If the backbone is trainable.')
+parser.add_argument("--save", action="store_true", help='If true, the model will be saved to the pre-defined folder.')
 
 parser.add_argument("--feat_size", default=28, type=int, help='The features from the backbone will be re-scaled to a fixed size for alignment.')
 parser.add_argument("--img_size", default=224, type=int, help='The input image and groundtruth will be re-scaled.')
@@ -85,6 +88,22 @@ GT_PATTERNS = {
     "horstp": "./synthetic/groundtruth/gt_horstp.png",
     "verstp": "./synthetic/groundtruth/gt_verstp.png",
     }
+
+SYNTHETIC_IMG = {
+    "black" : "./synthetic/images/black.jpg",
+    "white" : "./synthetic/images/white.jpg",
+    "noise" : "./synthetic/images/noise.jpg",
+    }
+
+def load_synthetic_imgs():
+    ret = {}
+    for name, path in SYNTHETIC_IMG.items():
+        img = Image.open(path).convert('RGB')
+        resized_img = F.resize(img, (args.img_size, args.img_size))
+        # conter to tensor and expand the first dimension, batch.
+        img_tensor = F.to_tensor(resized_img).unsqueeze(0)
+        ret[name] = img_tensor
+    return ret
 
 
 def main(gt):
@@ -122,8 +141,8 @@ def main(gt):
 
     elif args.arch.startswith("bag"):
         print ("Building BagNet and Decoder")
-        #backbone = models.bagnet.bagnet17(pretrained=args.pretrain)
-        backbone = models.bagnet.bagnet9(pretrained=args.pretrain)
+        backbone = models.bagnet.bagnet17(pretrained=args.pretrain)
+        #backbone = models.bagnet.bagnet9(pretrained=args.pretrain)
         decode_model = models.decoder.build_decoder(layer_list=[64*4, 128*4, 256*4, 512*4], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
 
     elif args.arch.startswith("res"):
@@ -136,7 +155,7 @@ def main(gt):
     if not backbone is None:
         backbone = backbone.cuda()
         if not args.train_backbone:
-            print ("freezing the backbone.")
+            print ("Freezing the backbone.")
             for param in backbone.parameters():
                 param.requires_grad = False
             backbone.eval()
@@ -149,7 +168,6 @@ def main(gt):
 
     criterion = nn.MSELoss().cuda()
 
-
     optimizer = torch.optim.SGD(filter(lambda p:p.requires_grad, trainable_params), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
@@ -157,24 +175,32 @@ def main(gt):
     train_loader, gt_map = build_data_loader(args.train_dir, gt_type=gt, train=True)
     test_loader, gt_map = build_data_loader(args.test_dir, gt_type=gt, train=False)
 
+    # load the synthetic image, all white, all black...
+    synthetic_img = load_synthetic_imgs()
+
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch, len(train_loader))
         train(train_loader, gt_map, backbone, decode_model, criterion, optimizer, epoch)
-        evaluate(test_loader, gt_map, backbone, decode_model, criterion, epoch)
 
+    # evalutea on the test set
+    evaluate(test_loader, gt_map, backbone, decode_model, criterion, epoch)
 
-    output_folder = str(args.arch)+"_"+gt
-    if args.prefix:
-        output_folder = args.prefix + "_" + output_folder
-    print ("Output directory", output_folder)
+    # evaluate on the synthetic images, white, black..
+    evaluate_image(synthetic_img, gt_map, backbone, decode_model, criterion, epoch)
 
-    if output_folder and not os.path.isdir(output_folder):
-        os.makedirs(output_folder)
-    state = {
-        'state_dict' : decode_model.state_dict(),
-        }
-    path = os.path.join(output_folder, "decoder.pth.tar")
-    save_model(state, path)
+    if args.save:
+        output_folder = str(args.arch)+"_"+gt
+        if args.prefix:
+            output_folder = args.prefix + "_" + output_folder
+        print ("Output directory", output_folder)
+
+        if output_folder and not os.path.isdir(output_folder):
+            os.makedirs(output_folder)
+        state = {
+            'state_dict' : decode_model.state_dict(),
+            }
+        path = os.path.join(output_folder, "decoder.pth.tar")
+        save_model(state, path)
 
 def save_model(state, path):
     torch.save(state, path)
@@ -194,6 +220,7 @@ def train(train_loader, gt_map, backbone, decode_model, criterion, optimizer, ep
 
         # expand the gt_map to the batch size.
         batch_map = gt_map.expand(input.size(0), -1, -1, -1)
+        #print (batch_map.shape, batch_map.max(), batch_map.min())
 
         # pass to gpu
         input = input.cuda()
@@ -264,8 +291,32 @@ def evaluate(test_loader, gt_map, backbone, decode_model, criterion, epoch):
 
         batch_time.update(time.time() - end)
         end = time.time()
-    print ("The MSE loss on the test is", losses.avg)
-    print ("The Spearman score on the test is", spc.avg)
+    print ("The MSE loss on the test set is", losses.avg)
+    print ("The Spearman score on the test set is", spc.avg)
+
+def evaluate_image(synthetic_dict, gt_map, backbone, decode_model, criterion, epoch):
+
+    # expand the dimensionality of the gt_map.
+    batch_map = gt_map.expand(1, -1, -1, -1)
+
+    for name, img in synthetic_dict.items():
+        if args.train_backbone:
+            backbone.eval()
+        decode_model.eval()
+
+        # pass to gpu
+        input = img.cuda()
+
+        if not backbone is None:
+            input = backbone(input)
+
+        output = decode_model(input).detach().cpu()
+
+        mse_score = criterion(output, batch_map)
+        spc_score = spearman(output.squeeze().numpy(), batch_map.squeeze().numpy())
+
+        print ("The MSE loss on", name, "is", mse_score.item())
+        print ("The Spearman score on", name, "is", spc_score)
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -292,8 +343,7 @@ def adjust_learning_rate(optimizer, epoch, len_epoch):
 
 if __name__ == '__main__':
 
-    #GTs = ["hor", "ver", "gau", "horstp", "verstp"] 
-    GTs = ["ver", "horstp", "verstp"] 
+    GTs = ["hor", "ver", "gau", "horstp", "verstp"] 
     for gt in GTs:
         print ("The target GT pattern is", gt)
         main(gt)
