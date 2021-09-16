@@ -1,13 +1,21 @@
 import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
 import torch.nn.functional as F
+from typing import Type, Any, Callable, Union, List, Optional
 
 __all__ = ['ResNet', 'resnet18', 'resnet152']
 
 
 model_urls = {
-    'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
-    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
+    'resnet18': 'https://download.pytorch.org/models/resnet18-f37072fd.pth',
+    'resnet34': 'https://download.pytorch.org/models/resnet34-b627a593.pth',
+    'resnet50': 'https://download.pytorch.org/models/resnet50-0676ba61.pth',
+    'resnet101': 'https://download.pytorch.org/models/resnet101-63fe2227.pth',
+    'resnet152': 'https://download.pytorch.org/models/resnet152-394f9c45.pth',
+    'resnext50_32x4d': 'https://download.pytorch.org/models/resnext50_32x4d-7cdf4587.pth',
+    'resnext101_32x8d': 'https://download.pytorch.org/models/resnext101_32x8d-8ba56ff5.pth',
+    'wide_resnet50_2': 'https://download.pytorch.org/models/wide_resnet50_2-95faca4d.pth',
+    'wide_resnet101_2': 'https://download.pytorch.org/models/wide_resnet101_2-32ee1156.pth',
 }
 
 
@@ -164,19 +172,19 @@ class ResNet(nn.Module):
 
         return [out1, out2, out3, out4]
 
-def resnet18(**kwargs):
+def resnet18(pretrained: bool = True, **kwargs):
     model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
 
-    # Note that our work takes the pre-trained backbone by default.
-    model_state = model.state_dict()
-    loaded = model_zoo.load_url(model_urls['resnet18'])
-    pretrained = {k:v for k,v in loaded.items() if k in model_state}
-    model_state.update(pretrained)
-    model.load_state_dict(model_state)
+    if pretrained:
+        model_state = model.state_dict()
+        loaded = model_zoo.load_url(model_urls['resnet18'])
+        pretrained = {k:v for k,v in loaded.items() if k in model_state}
+        model_state.update(pretrained)
+        model.load_state_dict(model_state)
 
     return model
 
-def resnet152(pretrained=True, **kwargs):
+def resnet152(pretrained: bool = True, **kwargs):
     model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
     if pretrained:
         # Note that our work takes the pre-trained backbone by default.
@@ -187,3 +195,63 @@ def resnet152(pretrained=True, **kwargs):
         model.load_state_dict(model_state)
         print ("Updated parameters", len(loaded_dict))
     return model
+
+def resnet34(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> ResNet:
+    r"""ResNet-34 model from
+    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+
+    model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
+    if pretrained:
+        # Note that our work takes the pre-trained backbone by default.
+        model_state = model.state_dict()
+        loaded = model_zoo.load_url(model_urls['resnet34'])
+        loaded_dict = {k:v for k,v in loaded.items() if k in model_state}
+        model_state.update(loaded_dict)
+        model.load_state_dict(model_state)
+        print ("Updated parameters", len(loaded_dict))
+
+    return model
+
+
+def resnet50(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> ResNet:
+    r"""ResNet-50 model from
+    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
+    if pretrained:
+        # Note that our work takes the pre-trained backbone by default.
+        model_state = model.state_dict()
+        loaded = model_zoo.load_url(model_urls['resnet50'])
+        loaded_dict = {k:v for k,v in loaded.items() if k in model_state}
+        model_state.update(loaded_dict)
+        model.load_state_dict(model_state)
+        print ("Updated parameters", len(loaded_dict))
+
+    return model
+
+
+def resnet101(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> ResNet:
+    r"""ResNet-101 model from
+    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+    if pretrained:
+        # Note that our work takes the pre-trained backbone by default.
+        model_state = model.state_dict()
+        loaded = model_zoo.load_url(model_urls['resnet101'])
+        loaded_dict = {k:v for k,v in loaded.items() if k in model_state}
+        model_state.update(loaded_dict)
+        model.load_state_dict(model_state)
+        print ("Updated parameters", len(loaded_dict))
+    return model
+
