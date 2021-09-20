@@ -40,16 +40,16 @@ import matplotlib.pyplot as plt
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument("train_dir", type=str, help='The datafolder of the training image, e.g., the DUT-S dataset.')
 parser.add_argument("test_dir", type=str, help='The datafolder of the training image, e.g., the PASCAL-S dataset.')
+
 parser.add_argument('-j', '--workers', default=16, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
+
 parser.add_argument('--epochs', default=15, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-
-parser.add_argument('-b', '--batch-size', default=8, type=int,
+parser.add_argument('-b', '--batch-size', default=32, type=int,
                     metavar='N', help='mini-batch size per process (default: 256)')
-
 parser.add_argument('--lr', '--learning-rate', default=1e-1, type=float,
                     metavar='LR', help='Initial learning rate.  Will be scaled by <global batch size>/256: args.lr = args.lr*float(args.batch_size*args.world_size)/256.  A warmup schedule will also be applied over the first 5 epochs.')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
@@ -61,6 +61,7 @@ parser.add_argument('--print-freq', '-p', default=300, type=int,
 parser.add_argument('--lr-decay', default=[10], type=list,
                     metavar='N', help='print frequency (default: 5)')
 
+parser.add_argument("--gpu", default="0", type=str)
 parser.add_argument("--arch", default="vgg", type=str)
 parser.add_argument("--pretrain", action="store_true", help='Initializing the backbone with an ImageNet pretrained one.')
 parser.add_argument("--train_backbone", action="store_true", help='If the backbone is trainable.')
@@ -77,8 +78,8 @@ parser.add_argument("--prefix", default="", type=str, help='You might want to ad
 cudnn.benchmark = True
 args = parser.parse_args()
 
-#os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   
-#os.environ["CUDA_VISIBLE_DEVICES"]=args.gpu
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   
+os.environ["CUDA_VISIBLE_DEVICES"]=args.gpu
 
 
 GT_PATTERNS = {
@@ -105,6 +106,10 @@ def load_synthetic_imgs():
         ret[name] = img_tensor
     return ret
 
+def normalize(x):
+    if x.min() != 0 or x.max() != 1:
+        x -= x.min()
+        x /= x.max()
 
 def main(gt):
 
@@ -114,30 +119,46 @@ def main(gt):
         gt_pil = Image.open(gt_path).convert('L')
         gt_resized = F.resize(gt_pil, (args.img_size, args.img_size))
         gt_tensor = F.to_tensor(gt_resized)
+     
+        normalize(gt_tensor)
 
-        if gt_tensor.min() != 0 or gt_tensor.max() != 1:
-            gt_tensor -= gt_tensor.min()
-            gt_tensor /= gt_tensor.max()
-        # create a dataloader for the images.
-        data_loader = torch.utils.data.DataLoader(
-            loader.ImageList(data_root, transforms.Compose([
+        #plt.imshow(gt_resized)
+        #plt.show()
+        #print (gt_tensor.min(), gt_tensor.max())
+
+        dataset = loader.ImageList(data_root, transforms.Compose([
                 transforms.Resize((args.img_size, args.img_size)),
                 transforms.ToTensor(),
-            ]),
-            ),
-            batch_size=args.batch_size, shuffle=train,
+            ]))
+        # create a dataloader for the images.
+        data_loader = torch.utils.data.DataLoader(
+            dataset, batch_size=args.batch_size, shuffle=train,
             num_workers=args.workers, pin_memory=True)
         return data_loader, gt_tensor
 
     if args.arch.startswith("vgg"):
         print ("Building VGG and Decoder")
         backbone = models.vgg.vgg16(pretrained=args.pretrain, pad=args.vgg_pad, layer_index=args.feat_index) 
-        decode_model = models.decoder.build_decoder(layer_list=[64,128,256,512,512], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
+        decode_model = models.decoder.build_decoder(layer_list=[64, 128, 256, 512, 512], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
 
     elif args.arch.startswith("res"):
-        print ("Building ResNet and Decoder")
-        backbone = models.resnet.resnet152(pretrained=args.pretrain)
-        decode_model = models.decoder.build_decoder(layer_list=[64*4, 128*4, 256*4, 512*4], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
+        print ("Building {arch:} and Decoder".format(arch=args.arch))
+
+        if "18" in args.arch:
+            backbone = models.resnet.resnet18(pretrained=args.pretrain)
+            decode_model = models.decoder.build_decoder(layer_list=[64, 128, 256, 512], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
+        elif "34" in args.arch:
+            backbone = models.resnet.resnet34(pretrained=args.pretrain)
+            decode_model = models.decoder.build_decoder(layer_list=[64, 128, 256, 512], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
+        elif "50" in args.arch:
+            backbone = models.resnet.resnet50(pretrained=args.pretrain)
+            decode_model = models.decoder.build_decoder(layer_list=[64*4, 128*4, 256*4, 512*4], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
+        elif "101" in args.arch:
+            backbone = models.resnet.resnet101(pretrained=args.pretrain)
+            decode_model = models.decoder.build_decoder(layer_list=[64*4, 128*4, 256*4, 512*4], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
+        elif "152" in args.arch:
+            backbone = models.resnet.resnet152(pretrained=args.pretrain)
+            decode_model = models.decoder.build_decoder(layer_list=[64*4, 128*4, 256*4, 512*4], size_mid=(args.feat_size, args.feat_size), size_out=(args.img_size, args.img_size), padding=args.decoder_pad, decoder_depth=args.decoder_depth)
 
     elif args.arch.startswith("bag"):
         print ("Building BagNet and Decoder")
@@ -253,16 +274,18 @@ def train(train_loader, gt_map, backbone, decode_model, criterion, optimizer, ep
 
 def spearman(x, y):
     spc = []
-    for a, b in zip(x, y):
-        spc.append(spearmanr(a.reshape(-1), b.reshape(-1))[0])
-    return np.mean(spc)
+    for pred, gt in zip(x, y):
+        spc.append(spearmanr(pred.reshape(-1), gt.reshape(-1))[0])
+    return spc 
 
 def evaluate(test_loader, gt_map, backbone, decode_model, criterion, epoch):
 
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
-    spc = AverageMeter()
+
+    spc_list = []
+
     if args.train_backbone:
         backbone.eval()
     decode_model.eval()
@@ -285,14 +308,15 @@ def evaluate(test_loader, gt_map, backbone, decode_model, criterion, epoch):
         mse = criterion(output, batch_map)
         losses.update(mse.item(), batch_map.size(0))
 
-        spc_score = spearman(output.squeeze().numpy(), batch_map.squeeze().numpy())
-        spc.update(spc_score, batch_map.size(0))
+        spc_scores = spearman(output.squeeze().numpy(), batch_map.squeeze().numpy())
+        spc_list.extend(spc_scores)
 
 
         batch_time.update(time.time() - end)
         end = time.time()
+
     print ("The MSE loss on the test set is", losses.avg)
-    print ("The Spearman score on the test set is", spc.avg)
+    print ("The Spearman score on the test set is", np.mean(spc_list))
 
 def evaluate_image(synthetic_dict, gt_map, backbone, decode_model, criterion, epoch):
 
@@ -313,7 +337,9 @@ def evaluate_image(synthetic_dict, gt_map, backbone, decode_model, criterion, ep
         output = decode_model(input).detach().cpu()
 
         mse_score = criterion(output, batch_map)
-        spc_score = spearman(output.squeeze().numpy(), batch_map.squeeze().numpy())
+
+        # the list has only one element, single image.
+        spc_score = spearman(output.squeeze().numpy(), batch_map.squeeze().numpy())[0]
 
         print ("The MSE loss on", name, "is", mse_score.item())
         print ("The Spearman score on", name, "is", spc_score)

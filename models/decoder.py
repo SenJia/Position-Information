@@ -23,13 +23,11 @@ class Decoder(nn.Module):
         self.size_mid = size_mid
         self.size_out = size_out
 
-
         self.num_filters = sum(layer_list) # the multi-level feature will be concatenated into one tensor, on which the conv module will be applied.
 
         print ("Padding in the decoder", padding, "Kernel size", filter_size, "Number of filters in the Decoder", self.num_filters)
 
         self.output = self._make_output(self.num_filters, filter_size, padding, decoder_depth)
-
         self._initialize_weights()
 
     def _initialize_weights(self):
@@ -68,8 +66,8 @@ class Decoder(nn.Module):
                 x[i] = F.interpolate(x[i], self.size_mid, mode='bilinear', align_corners=True)
             feat = torch.cat(x, dim=1)
 
-        feat = self.output(feat) 
-        feat = F.interpolate(feat, self.size_out, mode='bilinear', align_corners=True)
+        feat = self.output(feat)
+        feat = F.interpolate(feat, self.size_out, mode='bilinear', align_corners=False)
         return feat 
 
 def build_decoder(model_path=None, **kargs):
